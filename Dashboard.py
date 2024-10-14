@@ -2,77 +2,101 @@ import streamlit as st
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
-from statsmodels.tsa.arima_model import ARIMA
 
 # Load dataset
-data = pd.read_csv('PRSA_Data_Shunyi_20130301-20170228.csv')
-data['datetime'] = pd.to_datetime(data[['year', 'month', 'day', 'hour']])
-data.set_index('datetime', inplace=True)
+DATA_PATH = "D:\Bangkit-Machine Learning 2024\Proyek Akhir_Belajar Analisis Data Dengan Python\PRSA_Data_Shunyi_20130301-20170228.csv"
+data = pd.read_csv(DATA_PATH, na_values='NA', infer_datetime_format=True)
 
-# Data Cleaning
-data_cleaned = data[['PM2.5', 'TEMP', 'DEWP', 'PRES', 'RAIN', 'WSPM']].dropna()
+# Combine the year, month, day, and hour columns into a single datetime column
+data['datetime'] = pd.to_datetime(
+    data[['year', 'month', 'day', 'hour']]
+)
 
-# Title of the dashboard
-st.title("Dashboard Kualitas Udara di Beijing")
+# Add useful columns for analysis
+data['month'] = data['datetime'].dt.month
+data['hour'] = data['datetime'].dt.hour
+data['season'] = data['month'].apply(lambda x: 
+                                     'Winter' if x in [12, 1, 2] 
+                                     else 'Spring' if x in [3, 4, 5] 
+                                     else 'Summer' if x in [6, 7, 8] 
+                                     else 'Autumn')
 
-# Section 1: Analisis Pola Musiman
-st.header("Analisis Pola Musiman PM2.5")
-monthly_avg_pm25 = data_cleaned.resample('M')['PM2.5'].mean()
-moving_avg_pm25 = monthly_avg_pm25.rolling(window=12).mean()
+# Clean data: Drop NaN values in PM2.5 column
+data_cleaned = data.dropna(subset=['PM2.5'])
 
-plt.figure(figsize=(10, 6))
-plt.plot(monthly_avg_pm25, label='Rata-rata Bulanan PM2.5', color='blue')
-plt.plot(moving_avg_pm25, label='Moving Average (12 Bulan)', color='red', linestyle='--')
-plt.title('Tren Musiman PM2.5 dengan Moving Average')
-plt.xlabel('Tanggal')
-plt.ylabel('Konsentrasi PM2.5 (µg/m³)')
-plt.legend()
-st.pyplot(plt)
+# Streamlit dashboard title
+st.title("Dashboard Analisis Polusi Udara di Beijing")
 
-# Section 2: Clustering
-st.header("Clustering Berdasarkan Tingkat Polusi Udara")
-features = data_cleaned[['PM2.5', 'TEMP', 'WSPM']].dropna()
-scaler = StandardScaler()
-scaled_features = scaler.fit_transform(features)
+# Sidebar for navigation
+st.sidebar.title("Navigasi")
+option = st.sidebar.selectbox(
+    "Pilih Visualisasi", 
+    ["Kapan Polusi Udara Paling Tinggi?", 
+     "Hubungan Variabel Meteorologi dengan Polusi", 
+     "Clustering Berdasarkan Tingkat Polusi"]
+)
 
-kmeans = KMeans(n_clusters=3, random_state=42)
-features['Cluster'] = kmeans.fit_predict(scaled_features)
+# Visualisasi 1: Kapan Polusi Udara Paling Tinggi?
+if option == "Kapan Polusi Udara Paling Tinggi?":
+    st.subheader("Distribusi PM2.5 Berdasarkan Musim")
 
-plt.figure(figsize=(8, 6))
-sns.scatterplot(x='PM2.5', y='TEMP', hue='Cluster', data=features, palette='Set1')
-plt.title('Clustering Berdasarkan PM2.5 dan Suhu')
-plt.xlabel('PM2.5 (µg/m³)')
-plt.ylabel('Suhu (°C)')
-st.pyplot(plt)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.boxplot(x='season', y='PM2.5', data=data_cleaned, palette='Set2', ax=ax)
+    ax.set_title('Distribusi PM2.5 Berdasarkan Musim')
+    ax.set_xlabel('Musim')
+    ax.set_ylabel('Konsentrasi PM2.5 (µg/m³)')
+    st.pyplot(fig)
 
-# Section 3: Forecasting Polusi Udara
-st.header("Forecasting PM2.5 Menggunakan ARIMA")
-pm25_series = data_cleaned['PM2.5'].dropna()
+    st.subheader("Distribusi PM2.5 Berdasarkan Jam dalam Sehari")
 
-# Split data into training and testing
-train_size = int(len(pm25_series) * 0.8)
-train, test = pm25_series[:train_size], pm25_series[train_size:]
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.boxplot(x='hour', y='PM2.5', data=data_cleaned, palette='coolwarm', ax=ax)
+    ax.set_title('Distribusi PM2.5 Berdasarkan Jam dalam Sehari')
+    ax.set_xlabel('Jam (24-hour)')
+    ax.set_ylabel('Konsentrasi PM2.5 (µg/m³)')
+    st.pyplot(fig)
 
-# Build ARIMA model
-model = ARIMA(train, order=(5, 1, 2))
-model_fit = model.fit()
-forecast = model_fit.forecast(steps=len(test))[0]
+# Visualisasi 2: Hubungan Variabel Meteorologi dengan Polusi
+if option == "Hubungan Variabel Meteorologi dengan Polusi":
+    st.subheader("Heatmap Korelasi antara Variabel Cuaca dan Polusi Udara")
 
-plt.figure(figsize=(10, 6))
-plt.plot(train.index, train, label='Data Training')
-plt.plot(test.index, test, label='Data Testing', color='green')
-plt.plot(test.index, forecast, label='Prediksi ARIMA', color='red', linestyle='--')
-plt.title('Forecasting PM2.5 Menggunakan ARIMA')
-plt.xlabel('Tanggal')
-plt.ylabel('Konsentrasi PM2.5 (µg/m³)')
-plt.legend()
-st.pyplot(plt)
+    correlation_matrix = data_cleaned[['PM2.5', 'PM10', 'SO2', 'NO2', 'CO', 'O3', 'TEMP', 'PRES', 'WSPM']].corr()
+    fig, ax = plt.subplots(figsize=(10, 8))
+    sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', linewidths=0.5, ax=ax)
+    ax.set_title('Heatmap Korelasi antara Variabel Cuaca dan Polusi Udara')
+    st.pyplot(fig)
 
-# Section 4: Menampilkan Data Tabel
-st.header("Tabel Data Kualitas Udara")
-st.dataframe(data_cleaned.head(10))
+    st.subheader("Scatter Plot Hubungan Suhu dan PM2.5")
 
-# Footer
-st.write("Dashboard ini memberikan informasi mengenai kualitas udara di Beijing berdasarkan analisis data.")
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.scatterplot(x='TEMP', y='PM2.5', data=data_cleaned, hue='season', palette='viridis', ax=ax)
+    ax.set_title('Hubungan antara Suhu dan PM2.5')
+    ax.set_xlabel('Suhu (°C)')
+    ax.set_ylabel('PM2.5 (µg/m³)')
+    st.pyplot(fig)
+
+# Visualisasi 3: Clustering Berdasarkan Tingkat Polusi
+if option == "Clustering Berdasarkan Tingkat Polusi":
+    st.subheader("Clustering Berdasarkan Tingkat Polusi PM2.5")
+
+    data_cleaned['Polusi Level'] = pd.cut(
+        data_cleaned['PM2.5'], 
+        bins=[0, 50, 100, 150, 300, 500], 
+        labels=['Baik', 'Sedang', 'Tidak Sehat', 'Sangat Tidak Sehat', 'Berbahaya']
+    )
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    data_cleaned['Polusi Level'].value_counts().plot.pie(
+        autopct='%1.1f%%', colors=sns.color_palette('Set3'), ax=ax
+    )
+    ax.set_title('Distribusi Tingkat Polusi Berdasarkan PM2.5')
+    st.pyplot(fig)
+
+    st.subheader("Scatter Plot PM2.5 vs PM10 Berdasarkan Tingkat Polusi")
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.scatterplot(x='PM2.5', y='PM10', data=data_cleaned, hue='Polusi Level', palette='Set1', ax=ax)
+    ax.set_title('PM2.5 vs PM10 Berdasarkan Tingkat Polusi')
+    ax.set_xlabel('PM2.5 (µg/m³)')
+    ax.set_ylabel('PM10 (µg/m³)')
+    st.pyplot(fig)
